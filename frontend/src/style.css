@@ -23,6 +23,7 @@ body {
 #app {
     height: 100vh;
     text-align: center;
+    align-items: center;
 }
 
 .hidden {

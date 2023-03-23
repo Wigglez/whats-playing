@@ -11,4 +11,4 @@ export function LinkPlex():Promise<void>;
 
 export function Listener():Promise<void>;
 
-export function SetServer(arg1:number):Promise<void>;
+export function SetServer(arg1:string):Promise<void>;

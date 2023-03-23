@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "whats-playing",
+  "name": "What's Playing",
   "outputfilename": "whats-playing",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -9,5 +9,12 @@
   "author": {
     "name": "Dustin Essington",
     "email": "aetaric@gmail.com"
-  }
+  },
+  "Info": {
+    "companyName": "aetaric",
+    "productName": "What's Playing",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright Dustin Essington 2023",
+    "comments": "Built using Wails (https://wails.io)"
+}
 }

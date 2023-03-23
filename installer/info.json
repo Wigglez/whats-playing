@@ -1,0 +1,9 @@
+{
+    "Info": {
+        "companyName": "aetaric",
+        "productName": "What's Playing",
+        "productVersion": "1.0.0",
+        "copyright": "Copyright Dustin Essington 2023",
+        "comments": "Built using Wails (https://wails.io)"
+    }
+}

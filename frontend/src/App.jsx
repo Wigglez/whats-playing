@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useState,useCallback,useEffect} from 'react';
 import logo from './assets/images/logo-universal.png';
 import './App.css';
 import {LinkPlex, GetStatus, GetServers, SetServer, IsAuthorized} from "../wailsjs/go/main/App";
@@ -6,59 +6,67 @@ import {LinkPlex, GetStatus, GetServers, SetServer, IsAuthorized} from "../wails
 function App() {
     const [statusText, setstatusText] = useState("");
     const [servers, setServers] = useState([]);
-    const updateServers = (e) => setServers(e);
-    const updateStatusText = (result) => setstatusText(result);
+    const [authorized, setAuthorized] = useState(null);
 
-    var authorized;
+    const loadServers = useCallback(() => {
+        GetServers().then((value) => {
+            console.log(value);
+            if (value != null) {
+              setServers(value);
+            }
+        });
+    }, [setServers]);
 
-    status();
-    checkAuth();
+    useEffect(() => {
+        let timeout;
+
+        function checkAuth() {
+            IsAuthorized().then((value) => {
+                setAuthorized(value);
+                console.log(value);
+                if (value) {
+                    loadServers();
+                } else {
+                    timeout = setTimeout(checkAuth(),1000);
+                }
+            });
+        }
+
+        checkAuth();
+
+        return () => {
+            // clean up timeout refs when component unmounts for whatever reason, and don't recreate unless the component remounts
+            timeout && clearTimeout(timeout);
+        };
+    }, [loadServers, setAuthorized]);
+
+    useEffect(() => {
+        const interval = setInterval(()=> {
+            GetStatus().then((value) => {setstatusText(value)});
+        },1000);
+
+        return () => {
+            // clean up interval refs
+            clearInterval(interval);
+        };
+    }, [setstatusText]);
 
     function linkPlex() {
         LinkPlex();
     }
 
-    function status() {
-        setInterval(()=> {
-            GetStatus().then((value) => {updateStatusText(value)});
-        },1000);
-    }
-
-    function checkAuth() {
-        IsAuthorized().then((value) => {
-            authorized = value;
-            console.log(value);
-            if (value) {
-                loadServers();
-            } else {
-                setTimeout(checkAuth(),1000);
-            }
-        });
-    }
-
-
-    function loadServers() {
-        GetServers().then((value) => {
-            console.log(value);
-            updateServers(value);
-            var selectBox = document.getElementById('servers');
-
-            for(var i = 0, l = servers.length; i < l; i++){
-                var option = servers[i];
-                selectBox.options.add( new Option(option, i, false) );
-            }
-            selectBox.classList.remove("hidden")
-        });
+    function setServer(event) {
+        SetServer(event.target.value)
     }
 
     return (
         <div id="App">
             <div id="result" className="result">{statusText}</div>
-            <button className='btn' onClick={linkPlex}>Link Plex</button>
-            {/* <div id="input" className="input-box">
-                <input id="name" className="input" onChange={updateName} autoComplete="off" name="input" type="text"/>
-            </div> */}
-            <select className="hidden" id="servers">
+            <button className={servers.length === 0 ? "btn" : "hidden"} onClick={linkPlex}>Link Plex</button>
+            <select className={servers.length === 0 ? "hidden" : undefined} id="servers" onChange={setServer}>
+                {servers.map((server) => (
+                    <option key={server}>{server}</option>
+                ))}
             </select>
         </div>
     )
