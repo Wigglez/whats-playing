@@ -216,7 +216,7 @@ func (a *App) Listener() {
 
 					var title string
 					var largeText string
-					var stateText string
+					//var stateText string
 
 					switch session.Type {
 					case "track":
@@ -231,7 +231,7 @@ func (a *App) Listener() {
 						largeText = "Watching a TV Show"
 					}
 
-					stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
+					//stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
 
 					var imgurerr error
 					imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(metadata.MediaContainer.Metadata[0].Thumb))
@@ -256,15 +256,19 @@ func (a *App) Listener() {
 						imgurURL = []byte(imgurData.Link)
 					}
 
+					t := time.Now().Add(-time.Duration(viewOffset * 1000 * 1000))
+
+					timestamp := client.Timestamps{Start: &t}
 					caser := cases.Title(language.AmericanEnglish)
 					if imgurerr == nil {
-						act := client.Activity{LargeImage: string(imgurURL), SmallImage: state, Details: title, LargeText: largeText, State: stateText, SmallText: caser.String(state)}
+						act := client.Activity{LargeImage: string(imgurURL), SmallImage: state, Details: title, LargeText: largeText, Timestamps: &timestamp, SmallText: caser.String(state)}
 						client.SetActivity(act)
 					} else {
-						act := client.Activity{LargeImage: "logo", SmallImage: state, Details: title, LargeText: largeText, State: stateText, SmallText: caser.String(state)}
+						act := client.Activity{LargeImage: "logo", SmallImage: state, Details: title, LargeText: largeText, Timestamps: &timestamp, SmallText: caser.String(state)}
 						client.SetActivity(act)
 					}
 				}
+				break
 			}
 		}
 	})
