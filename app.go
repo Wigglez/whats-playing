@@ -244,10 +244,22 @@ func (a *App) Listener() {
 					//stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
 
 					var imgurerr error
-					imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(meta.Thumb))
+					var imgurURL []byte
+					var thumbURL string
+					var imgurData *imgur.ImageInfo
+
+					if session.Type == "episode" {
+						imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(meta.GrandparentThumb))
+					} else {
+						imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(meta.Thumb))
+					}
 
 					if imgurURL == nil {
-						thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.Thumb, a.authToken)
+						if session.Type == "episode" {
+							thumbURL = fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.GrandparentThumb, a.authToken)
+						} else {
+							thumbURL = fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.Thumb, a.authToken)
+						}
 						resp, err := http.Get(thumbURL)
 						if err != nil {
 							fmt.Println("Error fetching image data from plex")
@@ -258,11 +270,21 @@ func (a *App) Listener() {
 							fmt.Println("Error reading image data from plex")
 						}
 
-						imgurData, _, imgurerr := a.imgurClient.UploadImage(imageData, "", "URL", meta.Title, "")
+						if session.Type == "episode" {
+							imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", meta.GrandparentTitle, "")
+						} else {
+							imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", meta.Title, "")
+						}
 						if imgurerr != nil {
 							fmt.Println(imgurerr)
 						}
-						a.storage.Set([]byte("imgur-urls"), []byte(meta.Thumb), []byte(imgurData.Link))
+
+						if session.Type == "episode" {
+							a.storage.Set([]byte("imgur-urls"), []byte(meta.GrandparentThumb), []byte(imgurData.Link))
+						} else {
+							a.storage.Set([]byte("imgur-urls"), []byte(meta.Thumb), []byte(imgurData.Link))
+						}
+
 						imgurURL = []byte(imgurData.Link)
 					}
 
