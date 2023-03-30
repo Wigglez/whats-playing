@@ -250,6 +250,8 @@ func (a *App) Listener() {
 			} else {
 				fmt.Printf("user: %s, tracked_user: %v\n", session.User.Title, a.username)
 				if session.User.Title == a.username {
+					var act client.Activity
+
 					fmt.Printf("session: %s, Match: %s\n", sessionID, session.SessionKey)
 					metadata, err := a.plex.GetMetadata(mediaID)
 
@@ -257,11 +259,10 @@ func (a *App) Listener() {
 						fmt.Printf("failed to get metadata for key %s: %v\n", mediaID, err)
 					}
 
+					meta := metadata.MediaContainer.Metadata[0]
+
 					var title string
 					var largeText string
-					//var stateText string
-
-					meta := metadata.MediaContainer.Metadata[0]
 
 					switch session.Type {
 					case "track":
@@ -283,7 +284,8 @@ func (a *App) Listener() {
 						largeText = "Watching a TV Show"
 					}
 
-					//stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
+					act.Details = title
+					act.LargeText = largeText
 
 					imgurerr, imgurURL := a.getImgurURL(meta)
 
@@ -291,13 +293,25 @@ func (a *App) Listener() {
 
 					timestamp := client.Timestamps{Start: &t}
 					caser := cases.Title(language.AmericanEnglish)
+
+					act.SmallText = caser.String(state)
+					act.SmallImage = state
+
+					var largeImage string
+
 					if imgurerr == nil {
-						act := client.Activity{LargeImage: string(imgurURL), SmallImage: state, Details: title, LargeText: largeText, Timestamps: &timestamp, SmallText: caser.String(state)}
-						client.SetActivity(act)
+						largeImage = string(imgurURL)
 					} else {
-						act := client.Activity{LargeImage: "logo", SmallImage: state, Details: title, LargeText: largeText, Timestamps: &timestamp, SmallText: caser.String(state)}
-						client.SetActivity(act)
+						largeImage = "logo"
 					}
+
+					act.LargeImage = largeImage
+
+					if state != "paused" {
+						act.Timestamps = &timestamp
+					}
+
+					client.SetActivity(act)
 				}
 				break
 			}
