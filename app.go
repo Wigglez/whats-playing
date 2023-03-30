@@ -169,6 +169,48 @@ func (a *App) SetServer(server string) {
 	a.Listener()
 }
 
+// Get Imgur Thumbnail URL
+func (a *App) getImgurURL(meta plex.Metadata) (error, []byte) {
+	var imgurerr error
+	var imgurURL []byte
+	var imgurData *imgur.ImageInfo
+
+	var thumbnail string
+	if meta.Type == "episode" {
+		thumbnail = meta.GrandparentThumb
+	} else {
+		thumbnail = meta.Thumb
+	}
+
+	imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
+
+	if imgurURL == nil {
+		thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, thumbnail, a.authToken)
+
+		resp, err := http.Get(thumbURL)
+		if err != nil {
+			fmt.Println("Error fetching image data from plex")
+		}
+
+		imageData, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error reading image data from plex")
+		}
+
+		imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", thumbnail, "")
+
+		if imgurerr != nil {
+			fmt.Println(imgurerr)
+		}
+
+		a.storage.Set([]byte("imgur-urls"), []byte(thumbnail), []byte(imgurData.Link))
+
+		imgurURL = []byte(imgurData.Link)
+	}
+
+	return imgurerr, imgurURL
+}
+
 // Listener loop
 func (a *App) Listener() {
 
@@ -243,50 +285,7 @@ func (a *App) Listener() {
 
 					//stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
 
-					var imgurerr error
-					var imgurURL []byte
-					var thumbURL string
-					var imgurData *imgur.ImageInfo
-
-					if session.Type == "episode" {
-						imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(meta.GrandparentThumb))
-					} else {
-						imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(meta.Thumb))
-					}
-
-					if imgurURL == nil {
-						if session.Type == "episode" {
-							thumbURL = fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.GrandparentThumb, a.authToken)
-						} else {
-							thumbURL = fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.Thumb, a.authToken)
-						}
-						resp, err := http.Get(thumbURL)
-						if err != nil {
-							fmt.Println("Error fetching image data from plex")
-						}
-
-						imageData, err := io.ReadAll(resp.Body)
-						if err != nil {
-							fmt.Println("Error reading image data from plex")
-						}
-
-						if session.Type == "episode" {
-							imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", meta.GrandparentTitle, "")
-						} else {
-							imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", meta.Title, "")
-						}
-						if imgurerr != nil {
-							fmt.Println(imgurerr)
-						}
-
-						if session.Type == "episode" {
-							a.storage.Set([]byte("imgur-urls"), []byte(meta.GrandparentThumb), []byte(imgurData.Link))
-						} else {
-							a.storage.Set([]byte("imgur-urls"), []byte(meta.Thumb), []byte(imgurData.Link))
-						}
-
-						imgurURL = []byte(imgurData.Link)
-					}
+					imgurerr, imgurURL := a.getImgurURL(meta)
 
 					t := time.Now().Add(-time.Duration(viewOffset * 1000 * 1000))
 
