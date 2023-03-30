@@ -179,7 +179,11 @@ func (a *App) getImgurURL(meta plex.Metadata) (error, []byte) {
 	if meta.Type == "episode" {
 		thumbnail = meta.GrandparentThumb
 	} else {
-		thumbnail = meta.Thumb
+		if meta.Thumb != "" {
+			thumbnail = meta.Thumb
+		} else {
+			thumbnail = meta.GrandparentThumb
+		}
 	}
 
 	imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
