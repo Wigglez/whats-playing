@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.org/x/text/cases"
@@ -218,26 +219,35 @@ func (a *App) Listener() {
 					var largeText string
 					//var stateText string
 
+					meta := metadata.MediaContainer.Metadata[0]
+
 					switch session.Type {
 					case "track":
-						title = fmt.Sprintf("%s - %s", metadata.MediaContainer.Metadata[0].GrandparentTitle,
-							metadata.MediaContainer.Metadata[0].Title)
+						title = fmt.Sprintf("%s - %s", meta.GrandparentTitle, meta.Title)
 						largeText = "Listening to Music"
 					case "movie":
-						title = fmt.Sprintf("%s (%v)", metadata.MediaContainer.Metadata[0].Title, metadata.MediaContainer.Metadata[0].Year)
+						title = fmt.Sprintf("%s (%v)", meta.Title, meta.Year)
 						largeText = "Watching a Movie"
 					case "episode":
-						title = fmt.Sprintf("%s S%vE%v - %s", metadata.MediaContainer.Metadata[0].GrandparentTitle, metadata.MediaContainer.Metadata[0].ParentIndex, metadata.MediaContainer.Metadata[0].Index, metadata.MediaContainer.Metadata[0].Title)
+						var seasonNum = strconv.FormatInt(meta.ParentIndex, 10)
+						var episodeNum = strconv.FormatInt(meta.Index, 10)
+						if meta.ParentIndex <= 9 {
+							seasonNum = "0" + seasonNum
+						}
+						if meta.Index <= 9 {
+							episodeNum = "0" + episodeNum
+						}
+						title = fmt.Sprintf("%s S%sE%s - %s", meta.GrandparentTitle, seasonNum, episodeNum, meta.Title)
 						largeText = "Watching a TV Show"
 					}
 
 					//stateText = fmt.Sprintf("%s Elapsed", time.Duration(viewOffset*1000*1000))
 
 					var imgurerr error
-					imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(metadata.MediaContainer.Metadata[0].Thumb))
+					imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(meta.Thumb))
 
 					if imgurURL == nil {
-						thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, metadata.MediaContainer.Metadata[0].Thumb, a.authToken)
+						thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, meta.Thumb, a.authToken)
 						resp, err := http.Get(thumbURL)
 						if err != nil {
 							fmt.Println("Error fetching image data from plex")
@@ -248,11 +258,11 @@ func (a *App) Listener() {
 							fmt.Println("Error reading image data from plex")
 						}
 
-						imgurData, _, imgurerr := a.imgurClient.UploadImage(imageData, "", "URL", metadata.MediaContainer.Metadata[0].Title, "")
+						imgurData, _, imgurerr := a.imgurClient.UploadImage(imageData, "", "URL", meta.Title, "")
 						if imgurerr != nil {
 							fmt.Println(imgurerr)
 						}
-						a.storage.Set([]byte("imgur-urls"), []byte(metadata.MediaContainer.Metadata[0].Thumb), []byte(imgurData.Link))
+						a.storage.Set([]byte("imgur-urls"), []byte(meta.Thumb), []byte(imgurData.Link))
 						imgurURL = []byte(imgurData.Link)
 					}
 
