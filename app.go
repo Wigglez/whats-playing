@@ -184,10 +184,6 @@ func (a *App) connectToPlexServers() {
 
 // Get Imgur Thumbnail URL
 func (a *App) getImgurURL(meta plex.Metadata) []byte {
-	var imgurerr error
-	var imgurURL []byte
-	var imgurData *imgur.ImageInfo
-
 	thumbnail := "logo"
 	if meta.Type == "episode" {
 		thumbnail = meta.GrandparentThumb
@@ -201,35 +197,34 @@ func (a *App) getImgurURL(meta plex.Metadata) []byte {
 		}
 	}
 
-	imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
+	imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
 
-	if imgurURL == nil {
+	if (imgurURL == nil) || (fmt.Sprintf("%v", imgurURL) == "logo") {
 		thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, thumbnail, a.authToken)
 
 		resp, err := http.Get(thumbURL)
 		if err != nil {
 			fmt.Println("Error fetching image data from plex")
+			return []byte("logo")
 		}
 
-		fmt.Println("Response: ", resp)
+		defer resp.Body.Close()
 
 		imageData, err := io.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Println("Error reading image data from plex")
+			return []byte("logo")
 		}
 
-		fmt.Println("imageData: ", imageData)
-
-		imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", thumbnail, "")
-
-		if imgurerr != nil {
-			fmt.Println(imgurerr)
+		imgurData, _, err := a.imgurClient.UploadImage(imageData, "", "URL", thumbnail, "")
+		if err != nil {
+			fmt.Println(err)
 			a.storage.Set([]byte("imgur-urls"), []byte("logo"), []byte("logo"))
-			imgurURL = []byte("logo")
-		} else {
-			a.storage.Set([]byte("imgur-urls"), []byte(thumbnail), []byte(imgurData.Link))
-			imgurURL = []byte(imgurData.Link)
+			return []byte("logo")
 		}
+
+		a.storage.Set([]byte("imgur-urls"), []byte(thumbnail), []byte(imgurData.Link))
+		return []byte(imgurData.Link)
 	}
 
 	return imgurURL
