@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"golang.org/x/text/cases"
@@ -33,6 +32,8 @@ type App struct {
 	imgurClient   *imgur.Client
 	servers       []plex.PMSDevices
 	storage       storage.Storage
+	sessionActive bool
+	session       string
 }
 
 // NewApp creates a new App application struct
@@ -169,158 +170,204 @@ func (a *App) SetServer(server string) {
 	a.Listener()
 }
 
-// Get Imgur Thumbnail URL
-func (a *App) getImgurURL(meta plex.Metadata) (error, []byte) {
-	var imgurerr error
-	var imgurURL []byte
-	var imgurData *imgur.ImageInfo
+func (a *App) connectToPlexServers() {
+	for _, addr := range a.chosen_server.Connection {
+		plex, err := plex.New(addr.URI, a.authToken)
+		if err == nil {
+			a.plex = *plex
+			return
+		} else {
+			fmt.Println("unable to connect to plex server")
+		}
+	}
+}
 
-	var thumbnail string
+// Get Imgur Thumbnail URL
+func (a *App) getImgurURL(meta plex.Metadata) []byte {
+	thumbnail := "logo"
 	if meta.Type == "episode" {
 		thumbnail = meta.GrandparentThumb
 	} else {
 		if meta.Thumb != "" {
 			thumbnail = meta.Thumb
+		} else if meta.ParentThumb != "" {
+			thumbnail = meta.ParentThumb
 		} else {
 			thumbnail = meta.GrandparentThumb
 		}
 	}
 
-	imgurURL = a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
+	imgurURL := a.storage.Get([]byte("imgur-urls"), []byte(thumbnail))
 
-	if imgurURL == nil {
+	if (imgurURL == nil) || (fmt.Sprintf("%v", imgurURL) == "logo") {
 		thumbURL := fmt.Sprintf("%s%s?X-Plex-Token=%s", a.plex.URL, thumbnail, a.authToken)
 
 		resp, err := http.Get(thumbURL)
 		if err != nil {
 			fmt.Println("Error fetching image data from plex")
+			return []byte("logo")
 		}
+
+		defer resp.Body.Close()
 
 		imageData, err := io.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Println("Error reading image data from plex")
+			return []byte("logo")
 		}
 
-		imgurData, _, imgurerr = a.imgurClient.UploadImage(imageData, "", "URL", thumbnail, "")
-
-		if imgurerr != nil {
-			fmt.Println(imgurerr)
+		imgurData, _, err := a.imgurClient.UploadImage(imageData, "", "URL", thumbnail, "")
+		if err != nil {
+			fmt.Println(err)
+			a.storage.Set([]byte("imgur-urls"), []byte("logo"), []byte("logo"))
+			return []byte("logo")
 		}
 
 		a.storage.Set([]byte("imgur-urls"), []byte(thumbnail), []byte(imgurData.Link))
-
-		imgurURL = []byte(imgurData.Link)
+		return []byte(imgurData.Link)
 	}
 
-	return imgurerr, imgurURL
+	return imgurURL
 }
 
-// Listener loop
-func (a *App) Listener() {
+func getMediaTitle(meta plex.Metadata, sessionType string) string {
+	switch sessionType {
+	case "track":
+		return fmt.Sprintf("%s - %s", meta.GrandparentTitle, meta.Title)
+	case "movie":
+		return fmt.Sprintf("%s (%v)", meta.Title, meta.Year)
+	case "episode":
+		seasonNum := fmt.Sprintf("%02d", meta.ParentIndex)
+		episodeNum := fmt.Sprintf("%02d", meta.Index)
+		return fmt.Sprintf("%s S%sE%s - %s", meta.GrandparentTitle, seasonNum, episodeNum, meta.Title)
+	default:
+		return "Unknown Media Title"
+	}
+}
 
-	for _, addr := range a.chosen_server.Connection {
-		plex, err := plex.New(addr.URI, a.authToken)
+func getMediaLargeText(sessionType string) string {
+	switch sessionType {
+	case "track":
+		return "Listening to Music"
+	case "movie":
+		return "Watching a Movie"
+	case "episode":
+		return "Watching a TV Show"
+	default:
+		return "Unknown Media Type"
+	}
+}
 
-		if err == nil {
-			a.plex = *plex
-		} else {
-			fmt.Println("unable to connect to plex server")
+func (a *App) isUserActive(sessions []plex.Metadata, username string) bool {
+	for _, session := range sessions {
+		if session.User.Title == username {
+			a.session = session.Session.ID
+			return true
 		}
 	}
+	return false
+}
 
+func (a *App) handlePlayingNotification(n plex.NotificationContainer) {
+	mediaID := n.PlaySessionStateNotification[0].RatingKey
+	sessionID := n.PlaySessionStateNotification[0].SessionKey
+	viewOffset := n.PlaySessionStateNotification[0].ViewOffset
+	state := n.PlaySessionStateNotification[0].State
+
+	sessions, err := a.plex.GetSessions()
+	if err != nil {
+		fmt.Printf("failed to fetch sessions on plex server: %v\n", err)
+		return
+	}
+
+	a.sessionActive = a.isUserActive(sessions.MediaContainer.Metadata, a.username)
+
+	if a.sessionActive {
+		for _, session := range sessions.MediaContainer.Metadata {
+			a.handleSession(session, mediaID, sessionID, state, viewOffset)
+		}
+	}
+}
+
+func (a *App) handleSession(session plex.Metadata, mediaID string, sessionID string, state string, viewOffset int64) {
+	var act client.Activity
+
+	if a.username != session.User.Title {
+		return
+	}
+
+	if sessionID != session.SessionKey {
+		return
+	}
+
+	metadata, err := a.plex.GetMetadata(mediaID)
+
+	if err != nil {
+		fmt.Printf("failed to get metadata for key %s: %v\n", mediaID, err)
+		return
+	}
+
+	meta := metadata.MediaContainer.Metadata[0]
+
+	largeText := getMediaLargeText(session.Type)
+	title := getMediaTitle(meta, session.Type)
+	imgurURL := a.getImgurURL(meta)
+
+	act.LargeText = largeText
+	act.Details = title
+	act.LargeImage = string(imgurURL)
+	act.SmallText = cases.Title(language.AmericanEnglish).String(state)
+	act.SmallImage = state
+
+	if state != "paused" {
+		t := time.Now().Add(-time.Duration(viewOffset * 1000 * 1000))
+		timestamp := client.Timestamps{Start: &t}
+		act.Timestamps = &timestamp
+	}
+
+	client.SetActivity(act)
+}
+
+func (a *App) CheckActiveSessions() {
+	for {
+		sessions, err := a.plex.GetSessions()
+
+		if err != nil {
+			return
+		}
+
+		var isActive bool
+		for _, session := range sessions.MediaContainer.Metadata {
+			if a.session == session.Session.ID {
+				isActive = true
+			}
+		}
+
+		if !isActive {
+			var act client.Activity
+			act.LargeText = "Idle"
+			act.Details = "Idle"
+			act.LargeImage = "logo"
+			act.SmallText = ""
+			act.SmallImage = ""
+			client.SetActivity(act)
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (a *App) Listener() {
+	a.connectToPlexServers()
 	a.status = fmt.Sprintf("Listening for events from %s for %s", a.server, a.username)
 	ctrlC := make(chan os.Signal, 1)
 	onError := func(err error) {
 		fmt.Println(err)
 	}
-
 	events := plex.NewNotificationEvents()
 	events.OnPlaying(func(n plex.NotificationContainer) {
-		mediaID := n.PlaySessionStateNotification[0].RatingKey
-		sessionID := n.PlaySessionStateNotification[0].SessionKey
-		viewOffset := n.PlaySessionStateNotification[0].ViewOffset
-		state := n.PlaySessionStateNotification[0].State
-
-		sessions, err := a.plex.GetSessions()
-
-		if err != nil {
-			fmt.Printf("failed to fetch sessions on plex server: %v\n", err)
-			return
-		}
-
-		for _, session := range sessions.MediaContainer.Metadata {
-			if sessionID != session.SessionKey {
-				continue
-			} else {
-				fmt.Printf("user: %s, tracked_user: %v\n", session.User.Title, a.username)
-				if session.User.Title == a.username {
-					var act client.Activity
-
-					fmt.Printf("session: %s, Match: %s\n", sessionID, session.SessionKey)
-					metadata, err := a.plex.GetMetadata(mediaID)
-
-					if err != nil {
-						fmt.Printf("failed to get metadata for key %s: %v\n", mediaID, err)
-					}
-
-					meta := metadata.MediaContainer.Metadata[0]
-
-					var title string
-					var largeText string
-
-					switch session.Type {
-					case "track":
-						title = fmt.Sprintf("%s - %s", meta.GrandparentTitle, meta.Title)
-						largeText = "Listening to Music"
-					case "movie":
-						title = fmt.Sprintf("%s (%v)", meta.Title, meta.Year)
-						largeText = "Watching a Movie"
-					case "episode":
-						var seasonNum = strconv.FormatInt(meta.ParentIndex, 10)
-						var episodeNum = strconv.FormatInt(meta.Index, 10)
-						if meta.ParentIndex <= 9 {
-							seasonNum = "0" + seasonNum
-						}
-						if meta.Index <= 9 {
-							episodeNum = "0" + episodeNum
-						}
-						title = fmt.Sprintf("%s S%sE%s - %s", meta.GrandparentTitle, seasonNum, episodeNum, meta.Title)
-						largeText = "Watching a TV Show"
-					}
-
-					act.Details = title
-					act.LargeText = largeText
-
-					imgurerr, imgurURL := a.getImgurURL(meta)
-
-					t := time.Now().Add(-time.Duration(viewOffset * 1000 * 1000))
-
-					timestamp := client.Timestamps{Start: &t}
-					caser := cases.Title(language.AmericanEnglish)
-
-					act.SmallText = caser.String(state)
-					act.SmallImage = state
-
-					var largeImage string
-
-					if imgurerr == nil {
-						largeImage = string(imgurURL)
-					} else {
-						largeImage = "logo"
-					}
-
-					act.LargeImage = largeImage
-
-					if state != "paused" {
-						act.Timestamps = &timestamp
-					}
-
-					client.SetActivity(act)
-				}
-				break
-			}
-		}
+		a.handlePlayingNotification(n)
 	})
-
+	go a.CheckActiveSessions()
 	a.plex.SubscribeToNotifications(events, ctrlC, onError)
 }
