@@ -174,12 +174,20 @@ func (a *App) connectToPlexServers() {
 	for _, addr := range a.chosen_server.Connection {
 		plex, err := plex.New(addr.URI, a.authToken)
 		if err == nil {
-			a.plex = *plex
-			return
+			_, err := plex.GetSessions()
+			if err == nil {
+				a.plex = *plex
+				fmt.Printf("Set plex connection string to: %s\n", addr.URI)
+				a.status = fmt.Sprintf("Listening for events from %s for %s", a.server, a.username)
+				return
+			} else {
+				fmt.Printf("Failed to connect to server at address: %s\n", addr.URI)
+			}
 		} else {
 			fmt.Println("unable to connect to plex server")
 		}
 	}
+	a.status = "Failed to connect to specified server. The plex API only supports getting session data for servers you own."
 }
 
 // Get Imgur Thumbnail URL
@@ -359,7 +367,6 @@ func (a *App) CheckActiveSessions() {
 
 func (a *App) Listener() {
 	a.connectToPlexServers()
-	a.status = fmt.Sprintf("Listening for events from %s for %s", a.server, a.username)
 	ctrlC := make(chan os.Signal, 1)
 	onError := func(err error) {
 		fmt.Println(err)
