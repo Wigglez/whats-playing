@@ -41,12 +41,12 @@ func (s Storage) Set(bucket []byte, record []byte, data []byte) {
 
 func (s *Storage) Open() {
 	base_dir, err := os.UserConfigDir()
-	separator := os.PathSeparator
+	separator := string(os.PathSeparator)
 	if err == nil {
-		os.Mkdir(fmt.Sprintf("%s%vwhatsplaying", base_dir, separator), 0755)
+		os.Mkdir(fmt.Sprintf("%s%swhatsplaying", base_dir, separator), 0755)
 		fmt.Println(os.UserConfigDir())
 		var err error
-		s.DB, err = bolt.Open(fmt.Sprintf("%s%vwhatsplaying%vstorage.db", base_dir, separator, separator), 0600, nil)
+		s.DB, err = bolt.Open(fmt.Sprintf("%s%swhatsplaying%sstorage.db", base_dir, separator, separator), 0600, nil)
 		if err != nil {
 			fmt.Printf("Error opening storage")
 		}
